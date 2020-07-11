@@ -1,0 +1,2 @@
+D:\d2d12\MyDemos\DirectX12\Chapter4\InitializeD3D\Debug\InitializeD3D.exe
+D:\d2d12\MyDemos\DirectX12\Chapter4\InitializeD3D\Debug\InitializeD3D.pdb
