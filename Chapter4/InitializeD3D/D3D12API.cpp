@@ -1,11 +1,12 @@
 #include "D3D12API.h"
 #include "Application.h"
+#include <DirectXColors.h>
 
 using Microsoft::WRL::ComPtr;
 
 bool D3D12API::InitializeAPI()
 {
-	if (InitializeDirect3D())
+	if (!InitializeDirect3D())
 	{
 		return false;
 	}
@@ -120,6 +121,39 @@ void D3D12API::Set4XMsaaState(bool state)
 bool D3D12API::Get4XMsaaState() const
 {
 	return msaaState;
+}
+
+void D3D12API::Draw(const Timer& timer)
+{
+	ThrowIfFailed(directCmdListAlloc->Reset());
+
+	ThrowIfFailed(commandList->Reset(directCmdListAlloc.Get(), NULL));
+
+	commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+	commandList->RSSetViewports(1, &screenViewPort);
+	commandList->RSSetScissorRects(1, &scissorRect);
+
+	commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::LightSteelBlue, 0, NULL);
+	commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, NULL);
+
+	commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+
+	commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+
+	ThrowIfFailed(commandList->Close());
+
+	ID3D12CommandList* cmds[] = { commandList.Get() };
+	commandQueue->ExecuteCommandLists(_countof(cmds), cmds);
+
+	auto reason = d3dDevice->GetDeviceRemovedReason();
+
+	ThrowIfFailed(swapChain->Present(0, 0));
+	currentBackBuffer = (currentBackBuffer + 1) % SwapChainBufferCount;
+
+	FlushCommandQueue();
 }
 
 bool D3D12API::InitializeDirect3D()
@@ -256,7 +290,8 @@ void D3D12API::FlushCommandQueue()
 	if (fence->GetCompletedValue() < currentFence)
 	{
 		// HANDLE eventHandle = CreateEventEx(NULL, false, false, EVENT_ALL_ACCESS);
-		HANDLE eventHandle = CreateEventEx(NULL, NULL, false, EVENT_ALL_ACCESS);
+		// HANDLE eventHandle = CreateEventEx(NULL, NULL, false, EVENT_ALL_ACCESS);
+		HANDLE eventHandle = CreateEventExA(NULL, NULL, false, EVENT_ALL_ACCESS);
 
 		ThrowIfFailed(fence->SetEventOnCompletion(currentFence, eventHandle));
 
@@ -269,6 +304,20 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12API::DepthStencilView() const
 {
 	return dsvHeap->GetCPUDescriptorHandleForHeapStart();
 }
+
+ID3D12Resource* D3D12API::CurrentBackBuffer() const
+{
+	return swapChainBuffer[currentBackBuffer].Get();
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12API::CurrentBackBufferView() const
+{
+	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
+		rtvHeap->GetCPUDescriptorHandleForHeapStart(),
+		currentBackBuffer,
+		rtvDescriptorSize);
+}
+
 void D3D12API::LogAdapters()
 {
 	UINT i = 0;

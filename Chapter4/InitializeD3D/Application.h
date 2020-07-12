@@ -34,6 +34,8 @@ protected:
 	virtual void OnMouseUp(WPARAM buttonState, int x, int y) {}
 	virtual void OnMouseMove(WPARAM buttonState, int x, int y) {}
 private:
+	void Update(const Timer& timer);
+	void Draw(const Timer& timer);
 	bool InitializeWindow();
 	void CalculateFrameStats();
 protected:

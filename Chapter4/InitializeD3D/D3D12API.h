@@ -1,6 +1,8 @@
 #pragma once
 
+#include "WindowsUtility.h"
 #include "D3D12Utility.h"
+#include "Timer.h"
 
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -16,6 +18,7 @@ public:
 	void Set4XMsaaState(bool state);
 	bool Get4XMsaaState() const;
 
+	void Draw(const Timer& timer);
 private:
 	bool InitializeDirect3D();
 	void CreateCommandObjects();
@@ -25,6 +28,8 @@ private:
 	void FlushCommandQueue();
 
 	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const;
+	ID3D12Resource* CurrentBackBuffer() const;
+	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const;
 
 	void LogAdapters();
 	void LogAdapterOutputs(IDXGIAdapter* adapter);

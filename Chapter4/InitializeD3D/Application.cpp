@@ -39,6 +39,8 @@ int Application::Run()
 			if (!appPaused)
 			{
 				CalculateFrameStats();
+				Update(appTimer);
+				Draw(appTimer);
 			}
 			else
 			{
@@ -197,6 +199,16 @@ int Application::GetHeight()
 HWND Application::GetWindow()
 {
 	return window;
+}
+
+void Application::Update(const Timer& timer)
+{
+
+}
+
+void Application::Draw(const Timer& timer)
+{
+	d3dAPI.Draw(timer);
 }
 
 bool Application::InitializeWindow()
