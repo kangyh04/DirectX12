@@ -422,8 +422,8 @@ void LandAndWavesApp::BuildRootSignature()
 
 void LandAndWavesApp::BuildShaderAndInputLayout()
 {
-	mShaders["standardVS"] = d3dUtil::CompileShader(L"color.hlsl", NULL, "VS", "vs_5_1");
-	mShaders["opaquePS"] = d3dUtil::CompileShader(L"color.hlsl", NULL, "PS", "ps_5_1");
+	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", NULL, "VS", "vs_5_1");
+	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", NULL, "PS", "ps_5_1");
 
 	mInputLayout =
 	{

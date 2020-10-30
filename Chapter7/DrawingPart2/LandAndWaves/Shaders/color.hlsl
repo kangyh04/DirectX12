@@ -30,7 +30,7 @@ struct VertexIn
 struct VertexOut
 {
     float4 PosH : SV_POSITION;
-    float4 Color : SV_Target;
+    float4 Color : COLOR;
 };
 
 VertexOut VS(VertexIn vin)
