@@ -46,7 +46,7 @@ public:
 	template<typename T>
 	static T Clamp(const T& x, const T& low, const T& high)
 	{
-		return x < log ? log : (x > high ? high : x);
+		return x < low ? low : (x > high ? high : x);
 	}
 
 	static float AngleFromXY(float x, float y);
