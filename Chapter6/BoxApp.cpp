@@ -402,9 +402,14 @@ void BoxApp::BuildPSO()
 		reinterpret_cast<BYTE*>(mpsByteCode->GetBufferPointer()),
 		mpsByteCode->GetBufferSize()
 	};
-	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+
+	CD3DX12_RASTERIZER_DESC rasterizerDesc(D3D12_DEFAULT);
+	CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
+	CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
+
+	psoDesc.RasterizerState = rasterizerDesc;
+	psoDesc.BlendState = blendDesc;
+	psoDesc.DepthStencilState = depthStencilDesc;
 	psoDesc.SampleMask = UINT_MAX;
 	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	psoDesc.NumRenderTargets = 1;
