@@ -351,9 +351,12 @@ void TexColumnsApp::UpdateMainPassCB(const Timer& gt)
 	XMMATRIX proj = XMLoadFloat4x4(&mProj);
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
-	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+	auto detView = XMMatrixDeterminant(view);
+	auto detProj = XMMatrixDeterminant(proj);
+	auto detViewProj = XMMatrixDeterminant(viewProj);
+	XMMATRIX invView = XMMatrixInverse(&detView, view);
+	XMMATRIX invProj = XMMatrixInverse(&detProj, proj);
+	XMMATRIX invViewProj = XMMatrixInverse(&detViewProj, viewProj);
 
 	XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
 	XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
@@ -809,7 +812,7 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const ve
 		cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
 		cmdList->SetGraphicsRootConstantBufferView(2, matCBAddress);
 
-		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->StartIndexLocation, ri->baseVertexLocation);
+		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->baseVertexLocation, 0);
 	}
 }
 
