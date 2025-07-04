@@ -148,6 +148,7 @@ bool TexColumnsApp::Initialize()
 
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
 	FlushCommandQueue();
 
@@ -194,20 +195,23 @@ void TexColumnsApp::Draw(const Timer& gt)
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
 
-	auto toRenderTarget = CD3DX12_RESOURCE_BARRIER::Transition(
-		CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_PRESENT,
-		D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-	mCommandList->ResourceBarrier(1, &toRenderTarget);
+// 	auto toRenderTarget = CD3DX12_RESOURCE_BARRIER::Transition(
+// 		CurrentBackBuffer(),
+// 		D3D12_RESOURCE_STATE_PRESENT,
+// 		D3D12_RESOURCE_STATE_RENDER_TARGET);
+// 
+// 	mCommandList->ResourceBarrier(1, &toRenderTarget);
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-	auto backBufferView = CurrentBackBufferView();
-	auto depthStencilView = DepthStencilView();
-
-	mCommandList->OMSetRenderTargets(1, &backBufferView, true, &depthStencilView);
+// 	auto backBufferView = CurrentBackBufferView();
+// 	auto depthStencilView = DepthStencilView();
+// 
+// 	mCommandList->OMSetRenderTargets(1, &backBufferView, true, &depthStencilView);
+	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
 	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -218,13 +222,15 @@ void TexColumnsApp::Draw(const Timer& gt)
 	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
-
-	auto toPresent = CD3DX12_RESOURCE_BARRIER::Transition(
-		CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_RENDER_TARGET,
-		D3D12_RESOURCE_STATE_PRESENT);
-
-	mCommandList->ResourceBarrier(1, &toPresent);
+// 
+// 	auto toPresent = CD3DX12_RESOURCE_BARRIER::Transition(
+// 		CurrentBackBuffer(),
+// 		D3D12_RESOURCE_STATE_RENDER_TARGET,
+// 		D3D12_RESOURCE_STATE_PRESENT);
+// 
+// 	mCommandList->ResourceBarrier(1, &toPresent);
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
 	ThrowIfFailed(mCommandList->Close());
 
@@ -232,7 +238,7 @@ void TexColumnsApp::Draw(const Timer& gt)
 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
 	ThrowIfFailed(mSwapChain->Present(0, 0));
-	mCurrBackBuffer = (mCurrBackBuffer + 1) & SwapChainBufferCount;
+	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
 	mCurrFrameResource->Fence = ++mCurrentFence;
 
@@ -707,7 +713,7 @@ void TexColumnsApp::BuildRenderItems()
 
 	auto gridRitem = make_unique<RenderItem>();
 	gridRitem->World = MathHelper::Identity4x4();
-	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
+	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
 	gridRitem->ObjCBIndex = 1;
 	gridRitem->Mat = mMaterials["tile0"].get();
 	gridRitem->Geo = mGeometries["shapeGeo"].get();
@@ -790,7 +796,7 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const ve
 	UINT matCBByteSize = D3DUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
 	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
-	auto matCB = mCurrFrameResource->ObjectCB->Resource();
+	auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
 	for (size_t i = 0; i < ritems.size(); ++i)
 	{
@@ -810,7 +816,7 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const ve
 
 		cmdList->SetGraphicsRootDescriptorTable(0, tex);
 		cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
-		cmdList->SetGraphicsRootConstantBufferView(2, matCBAddress);
+		cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->baseVertexLocation, 0);
 	}
