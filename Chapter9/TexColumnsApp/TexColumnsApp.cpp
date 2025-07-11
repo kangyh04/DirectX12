@@ -127,6 +127,9 @@ TexColumnsApp::~TexColumnsApp()
 
 bool TexColumnsApp::Initialize()
 {
+#if defined(DEBUG) | defined(_DEBUG)
+	D3DApp::CreateDebugConsole();
+#endif
 	if (!D3DApp::Initialize())
 	{
 		return false;
