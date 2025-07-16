@@ -4,8 +4,6 @@
 #include "FrameResource.h"
 #include "RenderItem.h"
 
-const int gNumFrameResources = 3;
-
 class BaseApp : public D3DApp
 {
 public:
