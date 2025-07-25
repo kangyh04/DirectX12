@@ -22,7 +22,7 @@ public:
 	virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
 	virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
 
-	void OnKeyboardInput(const Timer& gt);
+	virtual void OnKeyboardInput(const Timer& gt);
 	void UpdateCamera(const Timer& gt);
 
 	virtual void AnimateMaterials(const Timer& gt) = 0;
