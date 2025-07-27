@@ -88,7 +88,7 @@ void BaseApp::Draw(const Timer& gt)
 	mCommandList->SetPipelineState(mPSOs["alphaTested"].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::AlphaTested]);
 
-	mCommandList->SetPipelineState(mPSOs["treeSprites"].Get());
+	mCommandList->SetPipelineState(mPSOs["treeSprite"].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::AlphaTestedTreeSprites]);
 
 	mCommandList->SetPipelineState(mPSOs["transparent"].Get());

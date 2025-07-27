@@ -97,10 +97,10 @@ bool GeometryApp::Initialize()
 	BuildWavesGeometry();
 	BuildBoxGeometry();
 	BuildTreeSpritesGeometry();
-	BuildPSOs();
-	BuildFrameResources();
 	BuildMaterials();
 	BuildRenderItems();
+	BuildFrameResources();
+	BuildPSOs();
 
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
