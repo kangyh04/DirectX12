@@ -86,7 +86,11 @@ VertexOut VS(VertexIn vin)
 {
     VertexOut vout = (VertexOut) 0.0f;
     
+    float y = 0.3f * (vin.PosW.z * sin(0.1f * vin.PosW.x) + vin.PosW.x * cos(0.1f * vin.PosW.z));
+    y += 8.0f;
+
     vout.CenterW = vin.PosW;
+    vout.CenterW.y = y;
     vout.SizeW = vin.SizeW;
 
     return vout;

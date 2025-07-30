@@ -25,9 +25,12 @@ private:
 	void BuildRootSignature();
 	void BuildDescriptorHeaps();
 	void BuildShadersAndInputLayout();
+
 	void BuildQuadPatchGeometry();
 	void BuildWavesGeometry();
 	void BuildBoxGeometry();
+	void BuildTreeGeometry();
+
 	void BuildMaterials();
 	void BuildRenderItems();
 	void BuildFrameResources();
@@ -88,6 +91,7 @@ bool PrivateApp::Initialize()
 	BuildQuadPatchGeometry();
 	BuildWavesGeometry();
 	BuildBoxGeometry();
+	BuildTreeGeometry();
 	BuildMaterials();
 	BuildRenderItems();
 	BuildFrameResources();
@@ -195,9 +199,17 @@ void PrivateApp::LoadTextures()
 		mCommandList.Get(), wirefenceTex->Filename.c_str(),
 		wirefenceTex->Resource, wirefenceTex->UploadHeap));
 
+	auto treeArrayTex = make_unique<Texture>();
+	treeArrayTex->Name = "treeArrayTex";
+	treeArrayTex->Filename = L"../../Textures/treeArray2.dds";
+	ThrowIfFailed(CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), treeArrayTex->Filename.c_str(),
+		treeArrayTex->Resource, treeArrayTex->UploadHeap));
+
 	mTextures[grassTex->Name] = move(grassTex);
 	mTextures[waterTex->Name] = move(waterTex);
 	mTextures[wirefenceTex->Name] = move(wirefenceTex);
+	mTextures[treeArrayTex->Name] = move(treeArrayTex);
 }
 
 void PrivateApp::BuildRootSignature()
@@ -246,7 +258,7 @@ void PrivateApp::BuildRootSignature()
 void PrivateApp::BuildDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 3;
+	srvHeapDesc.NumDescriptors = 4;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
@@ -257,6 +269,7 @@ void PrivateApp::BuildDescriptorHeaps()
 	auto grass = mTextures["grassTex"]->Resource;
 	auto water = mTextures["waterTex"]->Resource;
 	auto wirefence = mTextures["wirefenceTex"]->Resource;
+	auto treeArray = mTextures["treeArrayTex"]->Resource;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -274,6 +287,10 @@ void PrivateApp::BuildDescriptorHeaps()
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 	srvDesc.Format = wirefence->GetDesc().Format;
 	md3dDevice->CreateShaderResourceView(wirefence.Get(), &srvDesc, hDescriptor);
+
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+	srvDesc.Format = treeArray->GetDesc().Format;
+	md3dDevice->CreateShaderResourceView(treeArray.Get(), &srvDesc, hDescriptor);
 }
 
 void PrivateApp::BuildShadersAndInputLayout()
@@ -300,6 +317,10 @@ void PrivateApp::BuildShadersAndInputLayout()
 	mShaders["tessDS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "DS", "ds_5_0");
 	mShaders["tessPS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", defines, "PS", "ps_5_0");
 
+	mShaders["treeVS"] = D3DUtil::CompileShader(L"Shaders\\TreeSprite.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["treeGS"] = D3DUtil::CompileShader(L"Shaders\\TreeSprite.hlsl", nullptr, "GS", "gs_5_0");
+	mShaders["treePS"] = D3DUtil::CompileShader(L"Shaders\\TreeSprite.hlsl", alphaTestDefines, "PS", "ps_5_0");
+
 	mStdInputLayout =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -311,6 +332,12 @@ void PrivateApp::BuildShadersAndInputLayout()
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+	};
+
+	mTreeSpriteInputLayout =
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{ "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
 	};
 }
 
@@ -461,6 +488,60 @@ void PrivateApp::BuildBoxGeometry()
 	mGeometries[geo->Name] = move(geo);
 }
 
+void PrivateApp::BuildTreeGeometry()
+{
+	static const int numTrees = 16;
+
+	array<PointVertex, numTrees> vertices;
+
+	for (UINT i = 0; i < numTrees; ++i)
+	{
+		float x = MathHelper::RandF(-45.0f, 45.0f);
+		float z = MathHelper::RandF(-45.0f, 45.0f);
+		float y = 0.0f;
+
+		vertices[i].Pos = XMFLOAT3(x, y, z);
+		vertices[i].Size = XMFLOAT2(20.0f, 20.0f);
+	}
+
+	array<uint16_t, numTrees> indices =
+	{
+		0, 1, 2, 3, 4, 5, 6, 7,
+		8, 9, 10, 11, 12, 13, 14, 15
+	};
+
+	const UINT vbByteSize = (UINT)vertices.size() * sizeof(PointVertex);
+	const UINT ibByteSize = (UINT)indices.size() * sizeof(uint16_t);
+
+	auto geo = make_unique<MeshGeometry>();
+	geo->Name = "treeGeo";
+
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+	geo->VertexByteStride = sizeof(PointVertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry submesh;
+	submesh.IndexCount = (UINT)indices.size();
+	submesh.StartIndexLocation = 0;
+	submesh.BaseVertexLocation = 0;
+
+	geo->DrawArgs["tree"] = submesh;
+	mGeometries[geo->Name] = move(geo);
+}
+
 void PrivateApp::BuildMaterials()
 {
 	auto grass = make_unique<Material>();
@@ -487,9 +568,18 @@ void PrivateApp::BuildMaterials()
 	wirefence->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	wirefence->Roughness = 0.25f;
 
+	auto tree = make_unique<Material>();
+	tree->Name = "treeMat";
+	tree->MatCBIndex = 3;
+	tree->DiffuseSrvHeapIndex = 3;
+	tree->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	tree->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+	tree->Roughness = 0.125f;
+
 	mMaterials[grass->Name] = move(grass);
 	mMaterials[water->Name] = move(water);
 	mMaterials[wirefence->Name] = move(wirefence);
+	mMaterials[tree->Name] = move(tree);
 }
 
 void PrivateApp::BuildRenderItems()
@@ -534,9 +624,23 @@ void PrivateApp::BuildRenderItems()
 
 	mRitemLayer[(int)RenderLayer::AlphaTested].push_back(wirefenceRitem.get());
 
+	auto treeRitem = make_unique<RenderItem>();
+	treeRitem->World = MathHelper::Identity4x4();
+	treeRitem->TexTransform = MathHelper::Identity4x4();
+	treeRitem->ObjCBIndex = 3;
+	treeRitem->Mat = mMaterials["treeMat"].get();
+	treeRitem->Geo = mGeometries["treeGeo"].get();
+	treeRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+	treeRitem->IndexCount = treeRitem->Geo->DrawArgs["tree"].IndexCount;
+	treeRitem->StartIndexLocation = treeRitem->Geo->DrawArgs["tree"].StartIndexLocation;
+	treeRitem->baseVertexLocation = treeRitem->Geo->DrawArgs["tree"].BaseVertexLocation;
+
+	mRitemLayer[(int)RenderLayer::AlphaTestedTreeSprites].push_back(treeRitem.get());
+
 	mAllRitems.push_back(move(quadPatchRitem));
 	mAllRitems.push_back(move(wavesRitem));
 	mAllRitems.push_back(move(wirefenceRitem));
+	mAllRitems.push_back(move(treeRitem));
 }
 
 void PrivateApp::BuildFrameResources()
@@ -608,6 +712,29 @@ void PrivateApp::BuildPSOs()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
 		&alphaTestedPsoDesc,
 		IID_PPV_ARGS(&mPSOs["alphaTested"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC treePsoDesc = opaquePsoDesc;
+	treePsoDesc.InputLayout = { mTreeSpriteInputLayout.data(), (UINT)mTreeSpriteInputLayout.size() };
+	treePsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	treePsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["treeVS"]->GetBufferPointer()),
+		mShaders["treeVS"]->GetBufferSize()
+	};
+	treePsoDesc.GS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["treeGS"]->GetBufferPointer()),
+		mShaders["treeGS"]->GetBufferSize()
+	};
+	treePsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["treePS"]->GetBufferPointer()),
+		mShaders["treePS"]->GetBufferSize()
+	};
+	treePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&treePsoDesc,
+		IID_PPV_ARGS(&mPSOs["treeSprites"])));
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 	psoDesc.InputLayout = { mLandInputLayout.data(), (UINT)mLandInputLayout.size() };
