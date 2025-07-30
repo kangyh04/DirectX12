@@ -1,6 +1,8 @@
 #include "BaseApp.h"
 #include "StaticSamplers.h"
 #include "DDSTextureLoader.h"
+#include "FrameWave.h"
+#include "Waves.h"
 
 class PrivateApp : public BaseApp
 {
@@ -21,10 +23,16 @@ private:
 	void BuildDescriptorHeaps();
 	void BuildShadersAndInputLayout();
 	void BuildQuadPatchGeometry();
+	void BuildWavesGeometry();
 	void BuildMaterials();
 	void BuildRenderItems();
 	void BuildFrameResources();
 	void BuildPSOs();
+
+private:
+	vector<unique_ptr<FrameWave>> mFrameWaves;
+	unique_ptr<Waves> mWaves;
+	RenderItem* mWavesRitem = nullptr;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
@@ -72,6 +80,7 @@ bool PrivateApp::Initialize()
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 	BuildQuadPatchGeometry();
+	BuildWavesGeometry();
 	BuildMaterials();
 	BuildRenderItems();
 	BuildFrameResources();
@@ -110,7 +119,15 @@ void PrivateApp::LoadTextures()
 		mCommandList.Get(), grassTex->Filename.c_str(),
 		grassTex->Resource, grassTex->UploadHeap));
 
+	auto waterTex = make_unique<Texture>();
+	waterTex->Name = "waterTex";
+	waterTex->Filename = L"../../Textures/water1.dds";
+	ThrowIfFailed(CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), waterTex->Filename.c_str(),
+		waterTex->Resource, waterTex->UploadHeap));
+
 	mTextures[grassTex->Name] = move(grassTex);
+	mTextures[waterTex->Name] = move(waterTex);
 }
 
 void PrivateApp::BuildRootSignature()
@@ -168,6 +185,7 @@ void PrivateApp::BuildDescriptorHeaps()
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 	auto grass = mTextures["grassTex"]->Resource;
+	auto water = mTextures["waterTex"]->Resource;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -177,6 +195,10 @@ void PrivateApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = -1;
 
 	md3dDevice->CreateShaderResourceView(grass.Get(), &srvDesc, hDescriptor);
+
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+	srvDesc.Format = water->GetDesc().Format;
+	md3dDevice->CreateShaderResourceView(water.Get(), &srvDesc, hDescriptor);
 }
 
 void PrivateApp::BuildShadersAndInputLayout()
@@ -238,6 +260,60 @@ void PrivateApp::BuildQuadPatchGeometry()
 	mGeometries[geo->Name] = move(geo);
 }
 
+void PrivateApp::BuildWavesGeometry()
+{
+	vector<uint16_t> indices(3 * mWaves->TriangleCount());
+	assert(mWaves->VertexCount() < 0x0000ffff);
+
+	int m = mWaves->RowCount();
+	int n = mWaves->ColumnCount();
+	int k = 0;
+
+	for (int i = 0; i < m - 1; ++i)
+	{
+		for (int j = 0; j < n - 1; ++j)
+		{
+			indices[k] = i * n + j;
+			indices[k + 1] = i * n + j + 1;
+			indices[k + 2] = (i + 1) * n + j;
+
+			indices[k + 3] = (i + 1) * n + j;
+			indices[k + 4] = i * n + j + 1;
+			indices[k + 5] = (i + 1) * n + j + 1;
+			k += 6;
+		}
+	}
+
+	UINT vbByteSize = (UINT)mWaves->VertexCount() * sizeof(Vertex);
+	UINT ibByteSize = (UINT)indices.size() * sizeof(uint16_t);
+
+	auto geo = make_unique<MeshGeometry>();
+	geo->Name = "waterGeo";
+
+	geo->VertexBufferCPU = nullptr;
+	geo->VertexBufferGPU = nullptr;
+
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry submesh;
+	submesh.IndexCount = (UINT)indices.size();
+	submesh.StartIndexLocation = 0;
+	submesh.BaseVertexLocation = 0;
+
+	geo->DrawArgs["grid"] = submesh;
+
+	mGeometries[geo->Name] = move(geo);
+}
+
 void PrivateApp::BuildMaterials()
 {
 	auto grass = make_unique<Material>();
@@ -245,10 +321,19 @@ void PrivateApp::BuildMaterials()
 	grass->MatCBIndex = 0;
 	grass->DiffuseSrvHeapIndex = 0;
 	grass->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	grass->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-	grass->Roughness = 0.5f;
+	grass->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+	grass->Roughness = 0.125f;
+
+	auto water = make_unique<Material>();
+	water->Name = "waterMat";
+	water->MatCBIndex = 1;
+	water->DiffuseSrvHeapIndex = 1;
+	water->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
+	water->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+	water->Roughness = 0.0f;
 
 	mMaterials[grass->Name] = move(grass);
+	mMaterials[water->Name] = move(water);
 }
 
 void PrivateApp::BuildRenderItems()
@@ -266,7 +351,22 @@ void PrivateApp::BuildRenderItems()
 
 	mRitemLayer[(int)RenderLayer::Opaque].push_back(quadPatchRitem.get());
 
+	auto wavesRitem = make_unique<RenderItem>();
+	wavesRitem->World = MathHelper::Identity4x4();
+	XMStoreFloat4x4(&wavesRitem->TexTransform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
+	wavesRitem->ObjCBIndex = 1;
+	wavesRitem->Mat = mMaterials["waterMat"].get();
+	wavesRitem->Geo = mGeometries["waterGeo"].get();
+	wavesRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	wavesRitem->IndexCount = wavesRitem->Geo->DrawArgs["grid"].IndexCount;
+	wavesRitem->StartIndexLocation = wavesRitem->Geo->DrawArgs["grid"].StartIndexLocation;
+	wavesRitem->baseVertexLocation = wavesRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
+
+	mWavesRitem = wavesRitem.get();
+	mRitemLayer[(int)RenderLayer::Transparent].push_back(wavesRitem.get());
+
 	mAllRitems.push_back(move(quadPatchRitem));
+	mAllRitems.push_back(move(wavesRitem));
 }
 
 void PrivateApp::BuildFrameResources()
@@ -275,6 +375,8 @@ void PrivateApp::BuildFrameResources()
 	{
 		mFrameResources.push_back(make_unique<FrameResource>(md3dDevice.Get(),
 			1, (UINT)mAllRitems.size(), (UINT)mMaterials.size()));
+
+		mFrameWaves.push_back(make_unique<FrameWave>(md3dDevice.Get(), mWaves->VertexCount()));
 	}
 }
 
