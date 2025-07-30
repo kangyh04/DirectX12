@@ -203,10 +203,16 @@ void PrivateApp::BuildDescriptorHeaps()
 
 void PrivateApp::BuildShadersAndInputLayout()
 {
+	const D3D_SHADER_MACRO defines[] =
+	{
+		"FOG", "1",
+		NULL, NULL
+	};
+
 	mShaders["tessVS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "VS", "vs_5_0");
 	mShaders["tessHS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "DS", "ds_5_0");
-	mShaders["tessPS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "PS", "ps_5_0");
+	mShaders["tessPS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", defines, "PS", "ps_5_0");
 
 	mStdInputLayout =
 	{
