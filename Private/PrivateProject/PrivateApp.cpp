@@ -3,6 +3,7 @@
 #include "DDSTextureLoader.h"
 #include "FrameWave.h"
 #include "Waves.h"
+#include "GeometryGenerator.h"
 
 class PrivateApp : public BaseApp
 {
@@ -26,6 +27,7 @@ private:
 	void BuildShadersAndInputLayout();
 	void BuildQuadPatchGeometry();
 	void BuildWavesGeometry();
+	void BuildBoxGeometry();
 	void BuildMaterials();
 	void BuildRenderItems();
 	void BuildFrameResources();
@@ -85,6 +87,7 @@ bool PrivateApp::Initialize()
 	BuildShadersAndInputLayout();
 	BuildQuadPatchGeometry();
 	BuildWavesGeometry();
+	BuildBoxGeometry();
 	BuildMaterials();
 	BuildRenderItems();
 	BuildFrameResources();
@@ -185,8 +188,16 @@ void PrivateApp::LoadTextures()
 		mCommandList.Get(), waterTex->Filename.c_str(),
 		waterTex->Resource, waterTex->UploadHeap));
 
+	auto wirefenceTex = make_unique<Texture>();
+	wirefenceTex->Name = "wirefenceTex";
+	wirefenceTex->Filename = L"../../Textures/WireFence.dds";
+	ThrowIfFailed(CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), wirefenceTex->Filename.c_str(),
+		wirefenceTex->Resource, wirefenceTex->UploadHeap));
+
 	mTextures[grassTex->Name] = move(grassTex);
 	mTextures[waterTex->Name] = move(waterTex);
+	mTextures[wirefenceTex->Name] = move(wirefenceTex);
 }
 
 void PrivateApp::BuildRootSignature()
@@ -235,7 +246,7 @@ void PrivateApp::BuildRootSignature()
 void PrivateApp::BuildDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 2;
+	srvHeapDesc.NumDescriptors = 3;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
@@ -245,6 +256,7 @@ void PrivateApp::BuildDescriptorHeaps()
 
 	auto grass = mTextures["grassTex"]->Resource;
 	auto water = mTextures["waterTex"]->Resource;
+	auto wirefence = mTextures["wirefenceTex"]->Resource;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -258,6 +270,10 @@ void PrivateApp::BuildDescriptorHeaps()
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 	srvDesc.Format = water->GetDesc().Format;
 	md3dDevice->CreateShaderResourceView(water.Get(), &srvDesc, hDescriptor);
+
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+	srvDesc.Format = wirefence->GetDesc().Format;
+	md3dDevice->CreateShaderResourceView(wirefence.Get(), &srvDesc, hDescriptor);
 }
 
 void PrivateApp::BuildShadersAndInputLayout()
@@ -268,8 +284,16 @@ void PrivateApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
+	const D3D_SHADER_MACRO alphaTestDefines[] =
+	{
+		"FOG", "1",
+		"ALPHA_TEST", "1",
+		NULL, NULL
+	};
+
 	mShaders["standardVS"] = D3DUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_0");
-	mShaders["opaquePS"] = D3DUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_0");
+	mShaders["opaquePS"] = D3DUtil::CompileShader(L"Shaders\\Default.hlsl", defines, "PS", "ps_5_0");
+	mShaders["alphaTestedPS"] = D3DUtil::CompileShader(L"Shaders\\Default.hlsl", alphaTestDefines, "PS", "ps_5_0");
 
 	mShaders["tessVS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "VS", "vs_5_0");
 	mShaders["tessHS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "HS", "hs_5_0");
@@ -389,6 +413,54 @@ void PrivateApp::BuildWavesGeometry()
 	mGeometries[geo->Name] = move(geo);
 }
 
+void PrivateApp::BuildBoxGeometry()
+{
+	GeometryGenerator geoGen;
+	GeometryGenerator::MeshData box = geoGen.CreateBox(8.0f, 8.0f, 8.0f, 0);
+
+	vector<Vertex> vertices(box.Vertices.size());
+	for (size_t i = 0; i < box.Vertices.size(); ++i)
+	{
+		auto& p = box.Vertices[i].Position;
+		vertices[i].Pos = p;
+		vertices[i].Normal = box.Vertices[i].Normal;
+		vertices[i].TexC = box.Vertices[i].TexC;
+	}
+
+	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+
+	vector<uint16_t> indices = box.GetIndices16();
+	const UINT ibByteSize = (UINT)indices.size() * sizeof(uint16_t);
+
+	auto geo = make_unique<MeshGeometry>();
+	geo->Name = "boxGeo";
+
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry submesh;
+	submesh.IndexCount = (UINT)indices.size();
+	submesh.StartIndexLocation = 0;
+	submesh.BaseVertexLocation = 0;
+
+	geo->DrawArgs["box"] = submesh;
+	mGeometries[geo->Name] = move(geo);
+}
+
 void PrivateApp::BuildMaterials()
 {
 	auto grass = make_unique<Material>();
@@ -407,8 +479,17 @@ void PrivateApp::BuildMaterials()
 	water->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	water->Roughness = 0.0f;
 
+	auto wirefence = make_unique<Material>();
+	wirefence->Name = "wirefenceMat";
+	wirefence->MatCBIndex = 2;
+	wirefence->DiffuseSrvHeapIndex = 2;
+	wirefence->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	wirefence->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	wirefence->Roughness = 0.25f;
+
 	mMaterials[grass->Name] = move(grass);
 	mMaterials[water->Name] = move(water);
+	mMaterials[wirefence->Name] = move(wirefence);
 }
 
 void PrivateApp::BuildRenderItems()
@@ -440,8 +521,22 @@ void PrivateApp::BuildRenderItems()
 	mWavesRitem = wavesRitem.get();
 	mRitemLayer[(int)RenderLayer::Transparent].push_back(wavesRitem.get());
 
+	auto wirefenceRitem = make_unique<RenderItem>();
+	XMStoreFloat4x4(&wirefenceRitem->World, XMMatrixTranslation(3.0f, 2.0f, -9.0f));
+	wirefenceRitem->TexTransform = MathHelper::Identity4x4();
+	wirefenceRitem->ObjCBIndex = 2;
+	wirefenceRitem->Mat = mMaterials["wirefenceMat"].get();
+	wirefenceRitem->Geo = mGeometries["boxGeo"].get();
+	wirefenceRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	wirefenceRitem->IndexCount = wirefenceRitem->Geo->DrawArgs["box"].IndexCount;
+	wirefenceRitem->StartIndexLocation = wirefenceRitem->Geo->DrawArgs["box"].StartIndexLocation;
+	wirefenceRitem->baseVertexLocation = wirefenceRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+
+	mRitemLayer[(int)RenderLayer::AlphaTested].push_back(wirefenceRitem.get());
+
 	mAllRitems.push_back(move(quadPatchRitem));
 	mAllRitems.push_back(move(wavesRitem));
+	mAllRitems.push_back(move(wirefenceRitem));
 }
 
 void PrivateApp::BuildFrameResources()
@@ -502,6 +597,17 @@ void PrivateApp::BuildPSOs()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
 		&transparentPsoDesc,
 		IID_PPV_ARGS(&mPSOs["transparent"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC alphaTestedPsoDesc = opaquePsoDesc;
+	alphaTestedPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["alphaTestedPS"]->GetBufferPointer()),
+		mShaders["alphaTestedPS"]->GetBufferSize()
+	};
+	alphaTestedPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&alphaTestedPsoDesc,
+		IID_PPV_ARGS(&mPSOs["alphaTested"])));
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 	psoDesc.InputLayout = { mLandInputLayout.data(), (UINT)mLandInputLayout.size() };
