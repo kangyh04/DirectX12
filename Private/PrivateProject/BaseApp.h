@@ -30,13 +30,15 @@ public:
 	void UpdateMaterialCBs(const Timer& gt);
 	void UpdateMainPassCB(const Timer& gt);
 
-	void BuildWireFramePSOs();
-
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const vector<RenderItem*>& ritems);
+
+	void BuildWireFramePSOs();
 
 	void EnableD3D12DebugLayer();
 
 protected:
+	bool mWireFrameMode = false;
+
 	vector<unique_ptr<FrameResource>> mFrameResources;
 	FrameResource* mCurrFrameResource = nullptr;
 	int mCurrFrameResourceIndex = 0;

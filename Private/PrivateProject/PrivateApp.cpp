@@ -97,6 +97,8 @@ bool PrivateApp::Initialize()
 	BuildFrameResources();
 	BuildPSOs();
 
+	BaseApp::BuildWireFramePSOs();
+
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
@@ -114,7 +116,7 @@ void PrivateApp::Update(const Timer& gt)
 
 void PrivateApp::OnKeyboardInput(const Timer& gt)
 {
-
+	BaseApp::OnKeyboardInput(gt);
 }
 
 void PrivateApp::AnimateMaterials(const Timer& gt)
@@ -774,4 +776,10 @@ void PrivateApp::BuildPSOs()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
 		&psoDesc,
 		IID_PPV_ARGS(&mPSOs["tessellation"])));
+
+	mPsoDescs["opaque"] = opaquePsoDesc;
+	mPsoDescs["transparent"] = transparentPsoDesc;
+	mPsoDescs["alphaTested"] = alphaTestedPsoDesc;
+	mPsoDescs["treeSprites"] = treePsoDesc;
+	mPsoDescs["tessellation"] = psoDesc;
 }

@@ -1,4 +1,5 @@
 #include "BaseApp.h"
+#include <iostream>
 
 const int gNumFrameResources = 3;
 
@@ -60,11 +61,13 @@ void BaseApp::Update(const Timer& gt)
 
 void BaseApp::Draw(const Timer& gt)
 {
+	string psoSuffix = mWireFrameMode ? "_wireframe" : "";
+
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 
 	ThrowIfFailed(cmdListAlloc->Reset());
 
-	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["tessellation"].Get()));
+	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["tessellation" + psoSuffix].Get()));
 
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
@@ -91,13 +94,13 @@ void BaseApp::Draw(const Timer& gt)
 
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
-	mCommandList->SetPipelineState(mPSOs["alphaTested"].Get());
+	mCommandList->SetPipelineState(mPSOs["alphaTested" + psoSuffix].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::AlphaTested]);
 
-	mCommandList->SetPipelineState(mPSOs["treeSprites"].Get());
+	mCommandList->SetPipelineState(mPSOs["treeSprites" + psoSuffix].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::AlphaTestedTreeSprites]);
 
-	mCommandList->SetPipelineState(mPSOs["transparent"].Get());
+	mCommandList->SetPipelineState(mPSOs["transparent" + psoSuffix].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Transparent]);
 #pragma endregion
 
@@ -158,7 +161,7 @@ void BaseApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 void BaseApp::OnKeyboardInput(const Timer& gt)
 {
-
+	mWireFrameMode = GetAsyncKeyState('1') & 0x8000;
 }
 
 void BaseApp::UpdateCamera(const Timer& gt)
@@ -290,6 +293,18 @@ void BaseApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const vector<R
 		cmdList->SetGraphicsRootDescriptorTable(texRootParameterIndex, tex);
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->baseVertexLocation, 0);
+	}
+}
+
+void BaseApp::BuildWireFramePSOs()
+{
+	for (auto& desc : mPsoDescs)
+	{
+		auto psoDesc = desc.second;
+		psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+		ComPtr<ID3D12PipelineState> wireframePSO;
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&wireframePSO)));
+		mPSOs[desc.first + "_wireframe"] = wireframePSO;
 	}
 }
 
