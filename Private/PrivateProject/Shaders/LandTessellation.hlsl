@@ -99,7 +99,7 @@ PatchTess ConstantHS(InputPatch<VertexOut, 4> patch, uint patchID : SV_Primitive
     float d = distance(centerW, gEyePosW);
 
     const float d0 = 20.0f;
-    const float d1 = 100.0f;
+    const float d1 = 200.0f;
     float tess = 64.0f * saturate((d1 - d) / (d1 - d0));
 
     pt.EdgeTess[0] = tess;
@@ -153,14 +153,20 @@ DomainOut DS(PatchTess patchTess,
     float3 v2 = lerp(quad[2].PosL, quad[3].PosL, uv.x);
     float3 p = lerp(v1, v2, uv.y);
 
-    p.y = 0.3f * (p.z * sin(p.x) + p.x * cos(p.z));
+    // p.y = 0.3f * (p.z * sin(p.x) + p.x * cos(p.z));
+    p.y = 0.3f * (p.z * sin(0.1f * p.x) + p.x * cos(0.1f * p.z));
     
     dout.TexC = uv;
 
+//     float3 normal = normalize(float3(
+//         -0.03f * p.z * cos(p.x) - 0.3f * cos(p.z),
+//         1.0f,
+//         -0.3f * sin(p.x) + 0.03f * p.x * sin(p.z)));
+
     float3 normal = normalize(float3(
-        -0.03f * p.z * cos(p.x) - 0.3f * cos(p.z),
+        -0.03f * p.z * cos(0.1f * p.x) - 0.3f * cos(0.1f * p.z),
         1.0f,
-        -0.3f * sin(p.x) + 0.03f * p.x * sin(p.z)));
+        -0.3f * sin(0.1f * p.x) + 0.03f * p.x * sin(0.1f * p.z)));
 
     dout.NormalW = mul(normal, (float3x3) gWorld);
     

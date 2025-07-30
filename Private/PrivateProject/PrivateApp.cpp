@@ -18,6 +18,8 @@ private:
 	virtual void OnKeyboardInput(const Timer& gt) override;
 	virtual void AnimateMaterials(const Timer& gt) override;
 
+	void UpdateWaves(const Timer& gt);
+
 	void LoadTextures();
 	void BuildRootSignature();
 	void BuildDescriptorHeaps();
@@ -75,6 +77,8 @@ bool PrivateApp::Initialize()
 
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
+	mWaves = make_unique<Waves>(128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
+
 	LoadTextures();
 	BuildRootSignature();
 	BuildDescriptorHeaps();
@@ -98,6 +102,7 @@ bool PrivateApp::Initialize()
 void PrivateApp::Update(const Timer& gt)
 {
 	BaseApp::Update(gt);
+	UpdateWaves(gt);
 }
 
 void PrivateApp::OnKeyboardInput(const Timer& gt)
@@ -107,7 +112,61 @@ void PrivateApp::OnKeyboardInput(const Timer& gt)
 
 void PrivateApp::AnimateMaterials(const Timer& gt)
 {
+	auto waterMat = mMaterials["waterMat"].get();
 
+	float& tu = waterMat->MatTransform(3, 0);
+	float& tv = waterMat->MatTransform(3, 1);
+
+	tu += 0.1f * gt.GetDeltaTime();
+	tv += 0.02f * gt.GetDeltaTime();
+
+	if (tu >= 1.0f)
+	{
+		tu -= 1.0f;
+	}
+	if (tv >= 1.0f)
+	{
+		tv -= 1.0f;
+	}
+
+	waterMat->MatTransform(3, 0) = tu;
+	waterMat->MatTransform(3, 1) = tv;
+
+	waterMat->NumFramesDirty = gNumFrameResources;
+}
+
+void PrivateApp::UpdateWaves(const Timer& gt)
+{
+	static float t_base = 0.0f;
+	if ((gt.GetTotalTime() - t_base) >= 0.25f)
+	{
+		t_base += 0.25f;
+
+		int i = MathHelper::Rand(4, mWaves->RowCount() - 5);
+		int j = MathHelper::Rand(4, mWaves->ColumnCount() - 5);
+
+		float r = MathHelper::RandF(0.2f, 0.5f);
+
+		mWaves->Disturb(i, j, r);
+	}
+
+	mWaves->Update(gt.GetDeltaTime());
+
+	auto currWavesVB = mFrameWaves[mCurrFrameResourceIndex].get();
+	for (int i = 0; i < mWaves->VertexCount(); ++i)
+	{
+		Vertex v;
+
+		v.Pos = mWaves->Position(i);
+		v.Normal = mWaves->Normal(i);
+
+		v.TexC.x = 0.5f + v.Pos.x / mWaves->Width();
+		v.TexC.y = 0.5f - v.Pos.z / mWaves->Depth();
+
+		currWavesVB->WavesVB->CopyData(i, v);
+	}
+
+	mWavesRitem->Geo->VertexBufferGPU = currWavesVB->WavesVB->Resource();
 }
 
 void PrivateApp::LoadTextures()
@@ -176,7 +235,7 @@ void PrivateApp::BuildRootSignature()
 void PrivateApp::BuildDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 1;
+	srvHeapDesc.NumDescriptors = 2;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
@@ -209,12 +268,22 @@ void PrivateApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
+	mShaders["standardVS"] = D3DUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["opaquePS"] = D3DUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_0");
+
 	mShaders["tessVS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "VS", "vs_5_0");
 	mShaders["tessHS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", nullptr, "DS", "ds_5_0");
 	mShaders["tessPS"] = D3DUtil::CompileShader(L"Shaders\\LandTessellation.hlsl", defines, "PS", "ps_5_0");
 
 	mStdInputLayout =
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	};
+
+	mLandInputLayout =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
@@ -225,10 +294,10 @@ void PrivateApp::BuildQuadPatchGeometry()
 {
 	array<XMFLOAT3, 4> vertices =
 	{
-		XMFLOAT3(-10.0f, 0.0f,  10.0f),
-		XMFLOAT3(10.0f, 0.0f,  10.0f),
-		XMFLOAT3(-10.0f, 0.0f, -10.0f),
-		XMFLOAT3(10.0f, 0.0f, -10.0f),
+		XMFLOAT3(-160.0f, 0.0f,  160.0f),
+		XMFLOAT3(160.0f, 0.0f,  160.0f),
+		XMFLOAT3(-160.0f, 0.0f, -160.0f),
+		XMFLOAT3(160.0f, 0.0f, -160.0f),
 	};
 
 	array<uint16_t, 4> indices = { 0, 1, 2, 3 };
@@ -388,8 +457,54 @@ void PrivateApp::BuildFrameResources()
 
 void PrivateApp::BuildPSOs()
 {
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc = {};
+	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+	opaquePsoDesc.InputLayout = { mStdInputLayout.data(), (UINT)mStdInputLayout.size() };
+	opaquePsoDesc.pRootSignature = mRootSignature.Get();
+	opaquePsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
+		mShaders["standardVS"]->GetBufferSize()
+	};
+	opaquePsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
+		mShaders["opaquePS"]->GetBufferSize()
+	};
+	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	opaquePsoDesc.SampleMask = UINT_MAX;
+	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	opaquePsoDesc.NumRenderTargets = 1;
+	opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
+	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&opaquePsoDesc,
+		IID_PPV_ARGS(&mPSOs["opaque"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC transparentPsoDesc = opaquePsoDesc;
+	D3D12_RENDER_TARGET_BLEND_DESC transparentBlendDesc;
+	transparentBlendDesc.BlendEnable = true;
+	transparentBlendDesc.LogicOpEnable = false;
+	transparentBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	transparentBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	transparentBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+	transparentBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+	transparentBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+	transparentBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	transparentBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+	transparentBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	transparentPsoDesc.BlendState.RenderTarget[0] = transparentBlendDesc;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&transparentPsoDesc,
+		IID_PPV_ARGS(&mPSOs["transparent"])));
+
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-	psoDesc.InputLayout = { mStdInputLayout.data(), (UINT)mStdInputLayout.size() };
+	psoDesc.InputLayout = { mLandInputLayout.data(), (UINT)mLandInputLayout.size() };
 	psoDesc.pRootSignature = mRootSignature.Get();
 	psoDesc.VS =
 	{
