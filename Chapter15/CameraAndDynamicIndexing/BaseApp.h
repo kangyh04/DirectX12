@@ -27,7 +27,7 @@ public:
 
 	virtual void AnimateMaterials(const Timer& gt) = 0;
 	void UpdateObjectCBs(const Timer& gt);
-	void UpdateMaterialCBs(const Timer& gt);
+	void UpdateMaterialBuffer(const Timer& gt);
 	void UpdateMainPassCB(const Timer& gt);
 
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const vector<RenderItem*>& ritems);
@@ -47,7 +47,7 @@ protected:
 
 	UINT objRootParameterIndex = 0;
 	UINT passCBRootParameterIndex = 1;
-	UINT matCBRootParameterIndex = 2;
+	UINT matBufferRootParameterIndex = 2;
 	UINT texRootParameterIndex = 3;
 
 	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
@@ -62,8 +62,6 @@ protected:
 	unordered_map<string, D3D12_GRAPHICS_PIPELINE_STATE_DESC> mPsoDescs;
 
 	vector<D3D12_INPUT_ELEMENT_DESC> mStdInputLayout;
-	vector<D3D12_INPUT_ELEMENT_DESC> mTreeSpriteInputLayout;
-	vector<D3D12_INPUT_ELEMENT_DESC> mLandInputLayout;
 
 	vector<unique_ptr<RenderItem>> mAllRitems;
 

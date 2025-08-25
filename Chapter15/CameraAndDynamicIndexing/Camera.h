@@ -44,6 +44,7 @@ public:
 
 	void Strafe(float d);
 	void Walk(float d);
+	void Rise(float d);
 
 	void Pitch(float angle);
 	void RotateY(float angle);
