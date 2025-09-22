@@ -211,6 +211,7 @@ void PickApp::BuildRenderItems()
 	pickedRitem->IndexCount = 0;
 	pickedRitem->StartIndexLocation = 0;
 	pickedRitem->BaseVertexLocation = 0;
+	mPickedRitem = pickedRitem.get();
 	mRitemLayer[(int)RenderLayer::Highlight].push_back(pickedRitem.get());
 
 	mAllRitems.push_back(move(carRitem));
@@ -256,5 +257,26 @@ void PickApp::BuildPSOs()
 
 void PickApp::Pick(int sx, int sy)
 {
+	XMFLOAT4X4 p = mCamera.GetProj4x4f();
 
+	float vx = (2.0f * sx / mClientHeight - 1.0f) / p(0, 0);
+	float vy = (-2.0f * sy / mClientHeight + 1.0f) / p(1, 1);
+
+	XMVECTOR rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+	XMVECTOR rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+
+	XMMATRIX v = mCamera.GetView();
+	XMVECTOR detView = XMMatrixDeterminant(v);
+	XMMATRIX invView = XMMatrixInverse(&detView, v);
+
+	mPickedRitem->Visible = false;
+
+	for (auto ri : mRitemLayer[(int)RenderLayer::Opaque])
+	{
+		auto geo = ri->Geo;
+		if (ri->Visible == false)
+		{
+			continue;
+		}
+	}
 }

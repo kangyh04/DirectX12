@@ -38,7 +38,7 @@ bool BaseApp::Initialize()
 
 	Build();
 
-	BuildWireFramePSOs();
+	// BuildWireFramePSOs();
 
 	ThrowIfFailed(mCommandList->Close());
 
@@ -56,85 +56,92 @@ void BaseApp::OnResize()
 
 	mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 
-	mFrustumCulling.UpdateCameraFrustum(mCamera);
+	// mFrustumCulling.UpdateCameraFrustum(mCamera);
 }
 
 void BaseApp::Update(const Timer& gt)
 {
+	OnKeyboardInput(gt);
 
-	// 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
-	// 	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
-	// 
-	// 	if (mCurrFrameResource->Fence != 0 && mFence->GetCompletedValue() < mCurrFrameResource->Fence)
-	// 	{
-	// 		HANDLE eventHandle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
-	// 		ThrowIfFailed(mFence->SetEventOnCompletion(mCurrFrameResource->Fence, eventHandle));
-	// 		WaitForSingleObject(eventHandle, INFINITE);
-	// 		CloseHandle(eventHandle);
-	// 	}
-	// 
-	// 	AnimateMaterials(gt);
-	// 	UpdateInstanceBuffer(gt);
-	// 	UpdateMaterialBuffer(gt);
-	// 	UpdateMainPassCB(gt);
-	Input::GetInstance().Update();
+	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
+	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+
+	if (mCurrFrameResource->Fence != 0 && mFence->GetCompletedValue() < mCurrFrameResource->Fence)
+	{
+		HANDLE eventHandle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
+		ThrowIfFailed(mFence->SetEventOnCompletion(mCurrFrameResource->Fence, eventHandle));
+		WaitForSingleObject(eventHandle, INFINITE);
+		CloseHandle(eventHandle);
+	}
+
+	AnimateMaterials(gt);
+	UpdateInstanceBuffer(gt);
+	UpdateMaterialBuffer(gt);
+	UpdateMainPassCB(gt);
 }
 
 void BaseApp::Draw(const Timer& gt)
 {
 	// 	string psoSuffix = mWireFrameMode ? "_wireframe" : "";
 	// 
-	// 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
-	// 
-	// 	ThrowIfFailed(cmdListAlloc->Reset());
-	// 
-	// 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque" + psoSuffix].Get()));
-	// 
-	// 	mCommandList->RSSetViewports(1, &mScreenViewport);
-	// 	mCommandList->RSSetScissorRects(1, &mScissorRect);
-	// 
-	// 	auto toRenderTarget = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-	// 		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	// 	mCommandList->ResourceBarrier(1, &toRenderTarget);
-	// 
-	// 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
-	// 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-	// 
-	// 	auto currentBackBufferView = CurrentBackBufferView();
-	// 	auto depthStencilView = DepthStencilView();
-	// 	mCommandList->OMSetRenderTargets(1, &currentBackBufferView, true, &depthStencilView);
-	// 
-	// 	ID3D12DescriptorHeap* descriptorheaps[] = { mSrvDescriptorHeap.Get() };
-	// 	mCommandList->SetDescriptorHeaps(_countof(descriptorheaps), descriptorheaps);
-	// 
-	// 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
-	// 
-	// 	auto passCB = mCurrFrameResource->PassCB->Resource();
-	// 	mCommandList->SetGraphicsRootConstantBufferView(passCBRootParameterIndex, passCB->GetGPUVirtualAddress());
-	// 
-	// 	auto matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
-	// 	mCommandList->SetGraphicsRootShaderResourceView(matBufferRootParameterIndex, matBuffer->GetGPUVirtualAddress());
-	// 
-	// 	mCommandList->SetGraphicsRootDescriptorTable(texRootParameterIndex, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	// #pragma region RenderItems
-	// 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
-	// #pragma endregion
-	// 
-	// 	auto toPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-	// 		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-	// 	mCommandList->ResourceBarrier(1, &toPresent);
-	// 
-	// 	ThrowIfFailed(mCommandList->Close());
-	// 
-	// 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-	// 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-	// 
-	// 	ThrowIfFailed(mSwapChain->Present(0, 0));
-	// 	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
-	// 
-	// 	mCurrFrameResource->Fence = ++mCurrentFence;
-	// 
-	// 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
+	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
+
+	ThrowIfFailed(cmdListAlloc->Reset());
+
+	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
+
+	mCommandList->RSSetViewports(1, &mScreenViewport);
+	mCommandList->RSSetScissorRects(1, &mScissorRect);
+
+	auto toRenderTarget = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	mCommandList->ResourceBarrier(1, &toRenderTarget);
+
+	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
+	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+
+	auto currentBackBufferView = CurrentBackBufferView();
+	auto depthStencilView = DepthStencilView();
+	mCommandList->OMSetRenderTargets(1, &currentBackBufferView, true, &depthStencilView);
+
+	ID3D12DescriptorHeap* descriptorheaps[] = { mSrvDescriptorHeap.Get() };
+	mCommandList->SetDescriptorHeaps(_countof(descriptorheaps), descriptorheaps);
+
+	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+	auto passCB = mCurrFrameResource->PassCB->Resource();
+	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+	auto matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
+	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	skyTexDescriptor.Offset(3, mCbvSrvDescriptorSize);
+	mCommandList->SetGraphicsRootDescriptorTable(3, skyTexDescriptor);
+
+	mCommandList->SetGraphicsRootDescriptorTable(4, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	//  #pragma region RenderItems
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	mCommandList->SetPipelineState(mPSOs["sky"].Get());
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
+	//  #pragma endregion
+
+	auto toPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+	mCommandList->ResourceBarrier(1, &toPresent);
+
+	ThrowIfFailed(mCommandList->Close());
+
+	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+
+	ThrowIfFailed(mSwapChain->Present(0, 0));
+	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
+
+	mCurrFrameResource->Fence = ++mCurrentFence;
+
+	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
 
 }
 
@@ -167,13 +174,11 @@ void BaseApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 void BaseApp::OnKeyInputed(LPARAM lParam)
 {
-	Input::GetInstance().ProcessInput(lParam);
+	// Input::GetInstance().ProcessInput(lParam);
 }
 
 void BaseApp::OnKeyboardInput(const Timer& gt)
 {
-	mWireFrameMode = GetAsyncKeyState('1') & 0x8000;
-
 	const float dt = gt.GetDeltaTime();
 
 	if (GetAsyncKeyState('W') & 0x8000)
@@ -192,23 +197,6 @@ void BaseApp::OnKeyboardInput(const Timer& gt)
 	{
 		mCamera.Strafe(10.0f * dt);
 	}
-	if (GetAsyncKeyState('Q') & 0x8000)
-	{
-		mCamera.Rise(-10.0f * dt);
-	}
-	if (GetAsyncKeyState('E') & 0x8000)
-	{
-		mCamera.Rise(10.0f * dt);
-	}
-
-	if (GetAsyncKeyState('2') & 0x8000)
-	{
-		mFrustumCulling.SetFrustumCullingEnabled(true);
-	}
-	if (GetAsyncKeyState('3') & 0x8000)
-	{
-		mFrustumCulling.SetFrustumCullingEnabled(false);
-	}
 
 	mCamera.UpdateViewMatrix();
 }
@@ -219,18 +207,20 @@ void BaseApp::UpdateInstanceBuffer(const Timer& gt)
 
 	for (auto& e : mAllRitems)
 	{
-		vector<ObjectData> ritems;
-		mFrustumCulling.CullRenderItems(mCamera, e.get(), ritems);
-
-		UINT objCount = (UINT)ritems.size();
-
-		for (int i = 0; i < objCount; ++i)
+		if (e->NumFramesDirty > 0)
 		{
-			auto ri = ritems[i];
-			currInstanceBuffer->CopyData(i, ri);
-		}
+			XMMATRIX world = XMLoadFloat4x4(&e->World);
+			XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
 
-		e->InstanceCount = objCount;
+			ObjectData objData;
+			XMStoreFloat4x4(&objData.World, XMMatrixTranspose(world));
+			XMStoreFloat4x4(&objData.TexTransform, XMMatrixTranspose(texTransform));
+			objData.MaterialIndex = e->Mat->MatCBIndex;
+
+			currInstanceBuffer->CopyData(e->ObjCBIndex, objData);
+
+			e->NumFramesDirty--;
+		}
 	}
 }
 
@@ -298,6 +288,10 @@ void BaseApp::UpdateMainPassCB(const Timer& gt)
 
 void BaseApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const vector<RenderItem*>& ritems)
 {
+	UINT objCBByteSize = D3DUtil::CalcConstantBufferByteSize(sizeof(ObjectData));
+
+	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+
 	for (size_t i = 0; i < ritems.size(); ++i)
 	{
 		auto ri = ritems[i];
@@ -308,10 +302,11 @@ void BaseApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const vector<R
 		cmdList->IASetIndexBuffer(&indexBufferView);
 		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-		auto instanceBuffer = mCurrFrameResource->ObjectCB->Resource();
-		cmdList->SetGraphicsRootShaderResourceView(objRootParameterIndex, instanceBuffer->GetGPUVirtualAddress());
+		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 
-		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->InstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		cmdList->SetGraphicsRootShaderResourceView(0, objCBAddress);
+
+		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
 }
 

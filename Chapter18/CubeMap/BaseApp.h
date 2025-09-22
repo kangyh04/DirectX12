@@ -71,7 +71,7 @@ protected:
 
 	vector<unique_ptr<RenderItem>> mAllRitems;
 
-	vector<RenderItem*> mRitemLayer[(int)RenderLayer::Highlight];
+	vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 	vector<Texture*> mTextureLayer[(int)TextureLayer::Count];
 
 	PassConstants mMainPassCB;
