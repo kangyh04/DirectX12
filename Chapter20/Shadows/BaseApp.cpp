@@ -35,6 +35,8 @@ bool BaseApp::Initialize()
 	mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
 
+	mShadowMap = make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
+
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
 	Build();
@@ -64,13 +66,6 @@ void BaseApp::Update(const Timer& gt)
 {
 	OnKeyboardInput(gt);
 
-	XMMATRIX skullScale = XMMatrixScaling(0.2f, 0.2f, 0.2f);
-	XMMATRIX skullOffset = XMMatrixTranslation(3.0f, 2.0f, 0.0f);
-	XMMATRIX skullLocalRotate = XMMatrixRotationY(2.0f * gt.GetTotalTime());
-	XMMATRIX skullGlobalRotate = XMMatrixRotationY(0.5f * gt.GetTotalTime());
-	XMStoreFloat4x4(&mSkullRitem->World, skullScale * skullLocalRotate * skullOffset * skullGlobalRotate);
-	mSkullRitem->NumFramesDirty = gNumFrameResources;
-
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
 	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
 
@@ -82,54 +77,45 @@ void BaseApp::Update(const Timer& gt)
 		CloseHandle(eventHandle);
 	}
 
+	mLightRotationAngle += 0.1f * gt.GetDeltaTime();
+
+	XMMATRIX R = XMMatrixRotationY(mLightRotationAngle);
+	for (int i = 0; i < 3; ++i)
+	{
+		XMVECTOR lightDir = XMLoadFloat3(&mBaseLightDirections[i]);
+		lightDir = XMVector3TransformNormal(lightDir, R);
+		XMStoreFloat3(&mRotatedLightDirections[i], lightDir);
+	}
+
 	AnimateMaterials(gt);
 	UpdateInstanceBuffer(gt);
 	UpdateMaterialBuffer(gt);
+	UpdateShadowTransform(gt);
 	UpdateMainPassCB(gt);
+	UpdateShadowPassCB(gt);
 }
 
 void BaseApp::Draw(const Timer& gt)
 {
-	// 	string psoSuffix = mWireFrameMode ? "_wireframe" : "";
-	// 
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 
 	ThrowIfFailed(cmdListAlloc->Reset());
 
 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
 
-	// mCommandList->RSSetViewports(1, &mScreenViewport);
-	// mCommandList->RSSetScissorRects(1, &mScissorRect);
-
-	// auto toRenderTarget = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-		// D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	// mCommandList->ResourceBarrier(1, &toRenderTarget);
-
-	// mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
-	// mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-
-	// auto currentBackBufferView = CurrentBackBufferView();
-	// auto depthStencilView = DepthStencilView();
-	// mCommandList->OMSetRenderTargets(1, &currentBackBufferView, true, &depthStencilView);
-
 	ID3D12DescriptorHeap* descriptorheaps[] = { mSrvDescriptorHeap.Get() };
 	mCommandList->SetDescriptorHeaps(_countof(descriptorheaps), descriptorheaps);
 
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-	// auto passCB = mCurrFrameResource->PassCB->Resource();
-	// mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
-
 	auto matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
 	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
 
-	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	skyTexDescriptor.Offset(3, mCbvSrvDescriptorSize);
-	mCommandList->SetGraphicsRootDescriptorTable(3, skyTexDescriptor);
+	mCommandList->SetGraphicsRootDescriptorTable(3, mNullSrv);
 
 	mCommandList->SetGraphicsRootDescriptorTable(4, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-	DrawSceneToCubeMap();
+	DrawSceneToShadowMap();
 
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
@@ -149,16 +135,15 @@ void BaseApp::Draw(const Timer& gt)
 	auto passCB = mCurrFrameResource->PassCB->Resource();
 	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
 
-	CD3DX12_GPU_DESCRIPTOR_HANDLE dynamicTexDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	dynamicTexDescriptor.Offset(4, mCbvSrvDescriptorSize);
-	mCommandList->SetGraphicsRootDescriptorTable(3, dynamicTexDescriptor);
-
-	//  #pragma region RenderItems
-	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueDynamicReflectors]);
-
+	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	skyTexDescriptor.Offset(mSkyTexHeapIndex, mCbvSrvDescriptorSize);
 	mCommandList->SetGraphicsRootDescriptorTable(3, skyTexDescriptor);
 
+	mCommandList->SetPipelineState(mPSOs["opaque"].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	mCommandList->SetPipelineState(mPSOs["debug"].Get());
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Debug]);
 
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
@@ -277,12 +262,49 @@ void BaseApp::UpdateMaterialBuffer(const Timer& gt)
 			matData.Roughness = mat->Roughness;
 			XMStoreFloat4x4(&matData.MatTransform, XMMatrixTranspose(matTransform));
 			matData.DiffuseMapIndex = mat->DiffuseSrvHeapIndex;
+			matData.NormalMapIndex = mat->NormalSrvHeapIndex;
 
 			currMaterialBuffer->CopyData(mat->MatCBIndex, matData);
 
 			mat->NumFramesDirty--;
 		}
 	}
+}
+
+void BaseApp::UpdateShadowTransform(const Timer& gt)
+{
+	XMVECTOR lightDir = XMLoadFloat3(&mRotatedLightDirections[0]);
+	XMVECTOR lightPos = -2.0f * mSceneBounds.Radius * lightDir;
+	XMVECTOR targetPos = XMLoadFloat3(&mSceneBounds.Center);
+	XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+	XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+
+	XMStoreFloat3(&mLightPosW, lightPos);
+
+	XMFLOAT3 sphereCenterLS;
+	XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
+
+	float l = sphereCenterLS.x - mSceneBounds.Radius;
+	float b = sphereCenterLS.y - mSceneBounds.Radius;
+	float n = sphereCenterLS.z - mSceneBounds.Radius;
+	float r = sphereCenterLS.x + mSceneBounds.Radius;
+	float t = sphereCenterLS.y + mSceneBounds.Radius;
+	float f = sphereCenterLS.z + mSceneBounds.Radius;
+
+	mLightNearZ = n;
+	mLightFarZ = f;
+	XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l, r, b, t, n, f);
+
+	XMMATRIX T(
+		0.5f, 0.0f, 0.0f, 0.00f,
+		0.0f, -0.5f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.5f, 0.5f, 0.0f, 1.0f);
+
+	XMMATRIX S = lightView * lightProj * T;
+	XMStoreFloat4x4(&mLightView, lightView);
+	XMStoreFloat4x4(&mLightProj, lightProj);
+	XMStoreFloat4x4(&mShadowTransform, S);
 }
 
 void BaseApp::UpdateMainPassCB(const Timer& gt)
@@ -298,12 +320,15 @@ void BaseApp::UpdateMainPassCB(const Timer& gt)
 	XMMATRIX invProj = XMMatrixInverse(&detProj, proj);
 	XMMATRIX invViewProj = XMMatrixInverse(&detViewProj, viewProj);
 
+	XMMATRIX shadowTransform = XMLoadFloat4x4(&mShadowTransform);
+
 	XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
 	XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
 	XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
 	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
 	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+	XMStoreFloat4x4(&mMainPassCB.ShadowTransform, XMMatrixTranspose(shadowTransform));
 	mMainPassCB.EyePosW = mCamera.GetPosition3f();
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
@@ -312,53 +337,47 @@ void BaseApp::UpdateMainPassCB(const Timer& gt)
 	mMainPassCB.TotalTime = gt.GetTotalTime();
 	mMainPassCB.DeltaTime = gt.GetDeltaTime();
 	mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
-	float intpart;
-	mMainPassCB.SkyTime = modf(gt.GetTotalTime() * skyTimeSpeed, &intpart);
-	cout << "SkyTime: " << mMainPassCB.SkyTime << endl;
-	mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-	mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
-	mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+	mMainPassCB.Lights[0].Direction = mRotatedLightDirections[0];
+	mMainPassCB.Lights[0].Strength = { 0.9f, 0.8f, 0.7f };
+	mMainPassCB.Lights[1].Direction = mRotatedLightDirections[1];
 	mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-	mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+	mMainPassCB.Lights[2].Direction = mRotatedLightDirections[2];
 	mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
 
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(0, mMainPassCB);
-
-	UpdateCubeMapFacePassCBs();
 }
 
-void BaseApp::UpdateCubeMapFacePassCBs()
+void BaseApp::UpdateShadowPassCB(const Timer& gt)
 {
-	for (int i = 0; i < 6; ++i)
-	{
-		PassConstants cubeFacePassCB = mMainPassCB;
+	XMMATRIX view = XMLoadFloat4x4(&mLightView);
+	XMMATRIX proj = XMLoadFloat4x4(&mLightProj);
 
-		XMMATRIX view = mCubeMapCameras[i].GetView();
-		XMMATRIX proj = mCubeMapCameras[i].GetProj();
+	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+	auto detView = XMMatrixDeterminant(view);
+	auto detProj = XMMatrixDeterminant(proj);
+	XMMATRIX invView = XMMatrixInverse(&detView, view);
+	XMMATRIX invProj = XMMatrixInverse(&detProj, proj);
+	auto detViewProj = XMMatrixDeterminant(viewProj);
+	XMMATRIX invViewProj = XMMatrixInverse(&detViewProj, viewProj);
 
-		XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-		auto detView = XMMatrixDeterminant(view);
-		auto detProj = XMMatrixDeterminant(proj);
-		XMMATRIX invView = XMMatrixInverse(&detView, view);
-		XMMATRIX invProj = XMMatrixInverse(&detProj, proj);
-		auto detViewProj = XMMatrixDeterminant(viewProj);
-		XMMATRIX invViewProj = XMMatrixInverse(&detViewProj, viewProj);
+	UINT w = mShadowMap->Width();
+	UINT h = mShadowMap->Height();
 
-		XMStoreFloat4x4(&cubeFacePassCB.View, XMMatrixTranspose(view));
-		XMStoreFloat4x4(&cubeFacePassCB.InvView, XMMatrixTranspose(invView));
-		XMStoreFloat4x4(&cubeFacePassCB.Proj, XMMatrixTranspose(proj));
-		XMStoreFloat4x4(&cubeFacePassCB.InvProj, XMMatrixTranspose(invProj));
-		XMStoreFloat4x4(&cubeFacePassCB.ViewProj, XMMatrixTranspose(viewProj));
-		XMStoreFloat4x4(&cubeFacePassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-		cubeFacePassCB.EyePosW = mCubeMapCameras[i].GetPosition3f();
-		cubeFacePassCB.RenderTargetSize = XMFLOAT2((float)CubeMapSize, (float)CubeMapSize);
-		cubeFacePassCB.InvRenderTargetSize = XMFLOAT2(1.0f / CubeMapSize, 1.0f / CubeMapSize);
+	XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
+	XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
+	XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
+	XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
+	XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
+	XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+	mShadowPassCB.EyePosW = mLightPosW;
+	mShadowPassCB.RenderTargetSize = XMFLOAT2((float)w, (float)h);
+	mShadowPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / w, 1.0f / h);
+	mShadowPassCB.NearZ = mLightNearZ;
+	mShadowPassCB.FarZ = mLightFarZ;
 
-		auto currPassCB = mCurrFrameResource->PassCB.get();
-
-		currPassCB->CopyData(1 + i, cubeFacePassCB);
-	}
+	auto currPassCB = mCurrFrameResource->PassCB.get();
+	currPassCB->CopyData(1, mShadowPassCB);
 }
 
 void BaseApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const vector<RenderItem*>& ritems)
@@ -386,6 +405,37 @@ void BaseApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const vector<R
 	}
 }
 
+void BaseApp::DrawSceneToShadowMap()
+{
+	mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
+	mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
+
+	auto toDepthWrite = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap->Resource(),
+		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+	mCommandList->ResourceBarrier(1, &toDepthWrite);
+
+	UINT passCBByteSize = D3DUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
+
+	mCommandList->ClearDepthStencilView(mShadowMap->Dsv(),
+		D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+
+	mCommandList->OMSetRenderTargets(0, nullptr, false, &mShadowMap->Dsv());
+
+	auto passCB = mCurrFrameResource->PassCB->Resource();
+	D3D12_GPU_VIRTUAL_ADDRESS passCBAddress = passCB->GetGPUVirtualAddress() + 1 * passCBByteSize;
+	mCommandList->SetGraphicsRootConstantBufferView(1, passCBAddress);
+
+	mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
+
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	auto toGenericRead = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap->Resource(),
+		D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+
+	mCommandList->ResourceBarrier(1, &toGenericRead);
+}
+
 void BaseApp::BuildWireFramePSOs()
 {
 	for (auto& desc : mPsoDescs)
@@ -411,48 +461,4 @@ void BaseApp::EnableD3D12DebugLayer()
 			debugController1->SetEnableGPUBasedValidation(true);
 		}
 	}
-}
-
-void BaseApp::DrawSceneToCubeMap()
-{
-	auto viewport = mDynamicCubeMap->Viewport();
-	auto scissorRect = mDynamicCubeMap->ScissorRect();
-	mCommandList->RSSetViewports(1, &viewport);
-	mCommandList->RSSetScissorRects(1, &scissorRect);
-
-	auto toRenderTarget = CD3DX12_RESOURCE_BARRIER::Transition(mDynamicCubeMap->Resource(),
-		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-	mCommandList->ResourceBarrier(1, &toRenderTarget);
-
-	UINT passCBByteSize = D3DUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
-
-	for (int i = 0; i < 6; ++i)
-	{
-		auto rtv = mDynamicCubeMap->Rtv(i);
-
-		// mCommandList->ClearRenderTargetView(mDynamicCubeMap->Rtv(i), Colors::LightSteelBlue, 0, nullptr);
-		mCommandList->ClearRenderTargetView(rtv, Colors::LightSteelBlue, 0, nullptr);
-		mCommandList->ClearDepthStencilView(mCubeDsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-
-		mCommandList->OMSetRenderTargets(1, &rtv, true, &mCubeDsv);
-
-		auto passCB = mCurrFrameResource->PassCB->Resource();
-		D3D12_GPU_VIRTUAL_ADDRESS passCBAddress = passCB->GetGPUVirtualAddress() + (1 + i) * passCBByteSize;
-
-		mCommandList->SetGraphicsRootConstantBufferView(1, passCBAddress);
-
-		DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
-
-		mCommandList->SetPipelineState(mPSOs["sky"].Get());
-
-		DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
-
-		mCommandList->SetPipelineState(mPSOs["opaque"].Get());
-	}
-
-	auto toGenericRead = CD3DX12_RESOURCE_BARRIER::Transition(mDynamicCubeMap->Resource(),
-		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ);
-
-	mCommandList->ResourceBarrier(1, &toGenericRead);
 }
